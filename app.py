@@ -2,9 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import shutil
-import akshare as ak
-import time
 from datetime import datetime
 from st_aggrid import AgGrid, GridOptionsBuilder
 
@@ -13,36 +10,9 @@ TODAY_SIGNAL_FILE = "today_buy_signal.txt"
 
 def clear_data_dir():
     if os.path.exists(DATA_DIR):
+        import shutil
         shutil.rmtree(DATA_DIR)
     os.makedirs(DATA_DIR, exist_ok=True)
-
-def batch_download(symbols, data_dir=DATA_DIR):
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir, exist_ok=True)
-    status = []
-    date_map = {}
-    for code in symbols:
-        try:
-            df = ak.stock_us_daily(symbol=code)
-            if not df.empty:
-                df = df.rename(columns={
-                    'date': 'Date',
-                    'open': 'Open',
-                    'high': 'High',
-                    'low': 'Low',
-                    'close': 'Close'
-                })
-                df = df[['Date', 'Open', 'High', 'Low', 'Close']]
-                df.to_csv(f"{data_dir}/{code}.csv", index=False)
-                latest_date = df['Date'].iloc[-1]
-                status.append((code, "成功", latest_date))
-                date_map[code] = latest_date
-            else:
-                status.append((code, "无数据", ""))
-            time.sleep(0.2)
-        except Exception as e:
-            status.append((code, f"失败：{e}", ""))
-    return status, date_map
 
 def check_latest_dates(data_dir=DATA_DIR):
     code_dates = {}
@@ -52,7 +22,7 @@ def check_latest_dates(data_dir=DATA_DIR):
         if file.endswith('.csv'):
             code = file.replace('.csv', '')
             df = pd.read_csv(os.path.join(data_dir, file))
-            if not df.empty:
+            if not df.empty and 'Date' in df.columns:
                 code_dates[code] = df['Date'].iloc[-1]
     return code_dates
 
@@ -63,11 +33,20 @@ def today_signal(symbols, ema_length=5, threshold=3):
             df = pd.read_csv(os.path.join(DATA_DIR, f"{code}.csv"))
             if df.empty or len(df) < ema_length + threshold:
                 continue
-            df = df[-(ema_length + threshold + 2):].reset_index(drop=True)
-            df['EMA'] = df['Close'].ewm(span=ema_length, adjust=False).mean()
-            below_ema = df['Close'] < df['EMA']
-            if all(below_ema.iloc[-threshold:]):
-                buy_list.append(code)
+            # 兼容列名
+            colmap = {c.lower(): c for c in df.columns}
+            close_col = colmap.get('close', None)
+            if close_col is None:
+                continue
+            df['EMA'] = df[close_col].ewm(span=ema_length, adjust=False).mean()
+            below_count = 0
+            for i in range(1, len(df)):
+                if df.loc[i, close_col] < df.loc[i, 'EMA']:
+                    below_count = below_count + 1 if below_count else 1
+                else:
+                    below_count = 0
+                if (below_count == threshold) and (i == len(df)-1):
+                    buy_list.append(code)
         except Exception:
             continue
     return buy_list
@@ -87,35 +66,42 @@ def batch_backtest(symbols, start_date, end_date, initial_capital=10000, ema_len
             if not os.path.exists(fpath):
                 continue
             df = pd.read_csv(fpath)
+            if 'Date' not in df.columns:
+                continue
+            colmap = {c.lower(): c for c in df.columns}
+            close_col = colmap.get('close', None)
+            high_col = colmap.get('high', None)
+            if close_col is None or high_col is None:
+                continue
             df['Date'] = pd.to_datetime(df['Date'])
             df = df[(df['Date'] >= pd.to_datetime(start_date)) & (df['Date'] <= pd.to_datetime(end_date))]
             if len(df) < ema_length + threshold:
                 continue
-            df['EMA'] = df['Close'].ewm(span=ema_length, adjust=False).mean()
+            df['EMA'] = df[close_col].ewm(span=ema_length, adjust=False).mean()
             below_count = 0
             pos = None
             trades = []
             equity = initial_capital
             equity_curve = [equity]
             for i in range(1, len(df)):
-                if df.iloc[i]['Close'] < df.iloc[i]['EMA']:
+                if df.iloc[i][close_col] < df.iloc[i]['EMA']:
                     below_count += 1
                 else:
                     below_count = 0
                 if pos is None and below_count >= threshold:
-                    size = equity / df.iloc[i]['Close']
-                    entry_price = df.iloc[i]['Close']
+                    size = equity / df.iloc[i][close_col]
+                    entry_price = df.iloc[i][close_col]
                     pos = {'size': size, 'entry_price': entry_price}
                     equity = 0
-                if pos is not None and df.iloc[i]['Close'] > df.iloc[i-1]['High']:
-                    exit_price = df.iloc[i]['Close']
+                if pos is not None and df.iloc[i][close_col] > df.iloc[i-1][high_col]:
+                    exit_price = df.iloc[i][close_col]
                     pnl = pos['size'] * (exit_price - pos['entry_price'])
                     equity = pos['size'] * exit_price
                     trades.append({'pnl': pnl})
                     pos = None
-                equity_curve.append(equity if pos is None else pos['size'] * df.iloc[i]['Close'])
+                equity_curve.append(equity if pos is None else pos['size'] * df.iloc[i][close_col])
             if pos is not None:
-                last_exit_price = df.iloc[-1]['Close']
+                last_exit_price = df.iloc[-1][close_col]
                 pnl = pos['size'] * (last_exit_price - pos['entry_price'])
                 equity = pos['size'] * last_exit_price
                 trades.append({'pnl': pnl})
@@ -139,10 +125,13 @@ def batch_backtest(symbols, start_date, end_date, initial_capital=10000, ema_len
                 "亏损次数": lose,
                 "胜率": f"{winrate*100:.2f}%",
                 "初始资金": initial_capital,
+                "总盈亏率数值": total_return_rate*100,
+                "最大回撤率数值": max_dd_rate*100,
+                "胜率数值": winrate*100
             })
         except Exception as e:
             continue
-    columns = ["股票代码", "总盈亏", "总盈亏率", "最大回撤", "最大回撤率", "总交易数", "盈利次数", "亏损次数", "胜率", "初始资金"]
+    columns = ["股票代码", "总盈亏", "总盈亏率", "最大回撤", "最大回撤率", "总交易数", "盈利次数", "亏损次数", "胜率", "初始资金", "总盈亏率数值", "最大回撤率数值", "胜率数值"]
     return pd.DataFrame(results)[columns]
 
 def to_percent_float(series):
@@ -154,8 +143,8 @@ def get_today_signal_symbols():
             return [line.strip() for line in f if line.strip()]
     return []
 
-st.set_page_config(page_title="SIXQUARE选股AI工具", layout="wide")
-st.title("SIXQUARE选股AI工具")
+st.set_page_config(page_title="SIXQUARE AI选股", layout="wide")
+st.title("SIXQUARE AI选股")
 
 tabs = st.tabs(["📥 股票池与数据下载", "📊 今日选股信号", "📈 批量回测"])
 
@@ -168,7 +157,27 @@ with tabs[0]:
         st.write(f"已导入股票数量: {len(symbols)}")
         if st.button("一键下载最新日K数据"):
             clear_data_dir()
-            status, date_map = batch_download(symbols)
+            import akshare as ak
+            status = []
+            for code in symbols:
+                try:
+                    df = ak.stock_us_daily(symbol=code)
+                    if not df.empty:
+                        df = df.rename(columns={
+                            'date': 'Date',
+                            'open': 'Open',
+                            'high': 'High',
+                            'low': 'Low',
+                            'close': 'Close'
+                        })
+                        df = df[['Date', 'Open', 'High', 'Low', 'Close']]
+                        df.to_csv(f"{DATA_DIR}/{code}.csv", index=False)
+                        latest_date = df['Date'].iloc[-1]
+                        status.append((code, "成功", latest_date))
+                    else:
+                        status.append((code, "无数据", ""))
+                except Exception as e:
+                    status.append((code, f"失败：{e}", ""))
             st.success("下载完毕！")
             dfres = pd.DataFrame(status, columns=['代码', '状态', '最新日期'])
             st.write(dfres)
@@ -176,6 +185,8 @@ with tabs[0]:
     st.subheader("当前已下载股票及其数据最新日期：")
     code_dates = check_latest_dates()
     if code_dates:
+        max_date = max([str(d) for d in code_dates.values() if d])
+        st.markdown(f"已下载 <b>{len(code_dates)}</b> 只股票，数据最新日期：<b>{max_date}</b>", unsafe_allow_html=True)
         st.write(pd.DataFrame(list(code_dates.items()), columns=['股票代码', '最新数据日期']))
     else:
         st.write("暂无已下载数据，请先上传股票池并下载。")
@@ -213,14 +224,16 @@ with tabs[1]:
     # --------- 信号按钮 ----------
     if st.button("执行今日选股信号筛选"):
         buy_list = today_signal(symbols, ema_length, threshold)
-        st.success(f"今日可买入股票：{', '.join(buy_list) if buy_list else '无'}")
-        if buy_list:
-            ordered_buy_list = [code for code in symbols if code in buy_list]
-            st.write(pd.DataFrame({'买入信号股票': ordered_buy_list}))
-            st.download_button('下载csv', pd.DataFrame({'买入信号股票': ordered_buy_list}).to_csv(index=False).encode('utf-8'), 'today_buy_signal.csv')
-            st.download_button('下载txt(原顺序)', "\n".join(ordered_buy_list).encode('utf-8'), 'today_buy_signal.txt')
-            with open(TODAY_SIGNAL_FILE, "w", encoding="utf-8") as f:
-                f.write("\n".join(ordered_buy_list))
+        st.session_state['buy_list_today'] = buy_list
+    buy_list_today = st.session_state.get('buy_list_today', [])
+    if buy_list_today:
+        st.success(f"今日可买入股票：{', '.join(buy_list_today) if buy_list_today else '无'}")
+        ordered_buy_list = [code for code in symbols if code in buy_list_today]
+        st.write(pd.DataFrame({'买入信号股票': ordered_buy_list}))
+        st.download_button('下载csv', pd.DataFrame({'买入信号股票': ordered_buy_list}).to_csv(index=False).encode('utf-8'), 'today_buy_signal.csv')
+        st.download_button('下载txt(原顺序)', "\n".join(ordered_buy_list).encode('utf-8'), 'today_buy_signal.txt')
+        with open(TODAY_SIGNAL_FILE, "w", encoding="utf-8") as f:
+            f.write("\n".join(ordered_buy_list))
 
 # ---------------------------- TAB3 ----------------------------
 with tabs[2]:
@@ -267,30 +280,47 @@ with tabs[2]:
         ema_length3 = st.number_input("回测EMA长度", 1, 30, 5, key='ema_input2')
         threshold3 = st.number_input("回测连续低于EMA根数", 1, 10, 3, key='th_input2')
 
-    start_date = st.date_input("回测起始日期", datetime(2024,1,1))
-    end_date = st.date_input("回测结束日期", datetime(2025,5,1))
+    # 日期选择器
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("回测起始日期", datetime(2024,1,1))
+    with col2:
+        end_date = st.date_input("回测结束日期", datetime(2025,5,1))
+
+    # 回测按钮
     if st.button("执行批量回测"):
         dfres = batch_backtest(symbols_to_bt, str(start_date), str(end_date), ema_length=ema_length3, threshold=threshold3)
         if not dfres.empty:
-            dfres['总盈亏率数值'] = to_percent_float(dfres['总盈亏率'])
-            dfres['最大回撤率数值'] = to_percent_float(dfres['最大回撤率'])
-            dfres['胜率数值'] = to_percent_float(dfres['胜率'])
-            columns = ["股票代码", "总盈亏", "总盈亏率", "最大回撤", "最大回撤率", "总交易数", "盈利次数", "亏损次数", "胜率", "初始资金"]
-            st.session_state['backtest_df'] = dfres[columns + ['总盈亏率数值','最大回撤率数值','胜率数值']]
+            st.session_state['backtest_df'] = dfres
 
+    # --------- 回测结果表格（只显示主要字段，更多/主表切换） ---------
     if st.session_state['backtest_df'] is not None and not st.session_state['backtest_df'].empty:
-        columns = ["股票代码", "总盈亏", "总盈亏率", "最大回撤", "最大回撤率", "总交易数", "盈利次数", "亏损次数", "胜率", "初始资金"]
-        gb = GridOptionsBuilder.from_dataframe(st.session_state['backtest_df'])
-        gb.configure_column("总盈亏率", type=["numericColumn"], valueGetter="Number(data.总盈亏率.replace('%',''))")
-        gb.configure_column("最大回撤率", type=["numericColumn"], valueGetter="Number(data.最大回撤率.replace('%',''))")
-        gb.configure_column("胜率", type=["numericColumn"], valueGetter="Number(data.胜率.replace('%',''))")
-        gb.configure_column("总盈亏率数值", hide=True)
-        gb.configure_column("最大回撤率数值", hide=True)
-        gb.configure_column("胜率数值", hide=True)
+        all_columns = ["股票代码", "总盈亏", "总盈亏率", "最大回撤", "最大回撤率", "总交易数", "盈利次数", "亏损次数", "胜率", "初始资金"]
+        main_columns = ["股票代码", "总盈亏率", "胜率"]
+
+        if "show_all_cols" not in st.session_state:
+            st.session_state.show_all_cols = False
+
+        col_btn1, col_btn2 = st.columns([1,6])
+        with col_btn1:
+            if st.button("显示更多" if not st.session_state.show_all_cols else "只显示主要字段"):
+                st.session_state.show_all_cols = not st.session_state.show_all_cols
+
+        show_cols = all_columns if st.session_state.show_all_cols else main_columns
+
+        # 排序并只显示想要的列
+        display_df = st.session_state['backtest_df'].sort_values("总盈亏率数值", ascending=False)[show_cols].reset_index(drop=True)
+
+        # aggrid 配置
+        gb = GridOptionsBuilder.from_dataframe(display_df)
+        gb.configure_grid_options(sideBar=True)
+        gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=len(display_df))
+        for col in display_df.columns:
+            gb.configure_column(col, sortable=True)
         gridOptions = gb.build()
-        st.write("点击表头即可按数值排序，导出CSV同表格排序一致。")
-        ag_ret = AgGrid(st.session_state['backtest_df'], gridOptions=gridOptions, fit_columns_on_grid_load=True, height=500, return_mode='AS_INPUT')
-        download_df = pd.DataFrame(ag_ret['data'])[columns]
-        st.download_button('下载回测结果csv', download_df.to_csv(index=False).encode('utf-8'), 'batch_backtest.csv')
+
+        st.write("点击表头即可排序，点击【显示更多】可展开所有字段。")
+        ag_ret = AgGrid(display_df, gridOptions=gridOptions, fit_columns_on_grid_load=True, height=500, return_mode='AS_INPUT')
+        st.download_button('下载回测结果csv', ag_ret['data'].to_csv(index=False).encode('utf-8'), 'batch_backtest.csv')
     else:
         st.write("无回测结果")
