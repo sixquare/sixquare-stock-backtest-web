@@ -182,7 +182,7 @@ with tabs[0]:
 
 # TAB2 (不变)
 with tabs[1]:
-    st.header("2. 今日选股信号")
+    st.header("2. 今日选股与卖出信号")
     code_dates = check_latest_dates()
     symbols = sorted(list(code_dates.keys()))
     st.write(f"当前股票池数量：{len(symbols)}")
@@ -207,16 +207,60 @@ with tabs[1]:
     else:
         ema_length = st.number_input("EMA长度", 1, 30, 5, key='ema_input1')
         threshold = st.number_input("连续低于EMA根数", 1, 10, 3, key='th_input1')
-    if st.button("执行今日选股信号筛选"):
-        buy_list = today_signal(symbols, ema_length, threshold)
-        st.success(f"今日可买入股票：{', '.join(buy_list) if buy_list else '无'}")
+
+    if st.button("执行今日买卖信号筛选"):
+        buy_list = []
+        sell_list = []
+        buy_dates = []
+        sell_dates = []
+
+        for code in symbols:
+            try:
+                df = pd.read_csv(os.path.join(DATA_DIR, f"{code}.csv"))
+                if df.empty or len(df) < ema_length + threshold + 2:
+                    continue
+                df['EMA'] = df['Close'].ewm(span=ema_length, adjust=False).mean()
+                # --- 买入信号 ---
+                below_ema = df['Close'] < df['EMA']
+                for i in range(threshold, len(df)):
+                    # 连续threshold根低于EMA，且此K线是最后一根K线（即今日信号）
+                    if all(below_ema.iloc[i-threshold+1:i+1]) and i == len(df)-1:
+                        buy_list.append(code)
+                        buy_dates.append(df['Date'].iloc[i])
+                        break
+                # --- 卖出信号（符合平仓条件：收盘价 > 昨日high） ---
+                for i in range(1, len(df)):
+                    if df['Close'].iloc[i] > df['High'].iloc[i-1] and i == len(df)-1:
+                        sell_list.append(code)
+                        sell_dates.append(df['Date'].iloc[i])
+                        break
+            except Exception:
+                continue
+
+        # ---- 买入信号展示 ----
         if buy_list:
-            ordered_buy_list = [code for code in symbols if code in buy_list]
-            st.write(pd.DataFrame({'买入信号股票': ordered_buy_list}))
-            st.download_button('下载csv', pd.DataFrame({'买入信号股票': ordered_buy_list}).to_csv(index=False).encode('utf-8'), 'today_buy_signal.csv')
-            st.download_button('下载txt(原顺序)', "\n".join(ordered_buy_list).encode('utf-8'), 'today_buy_signal.txt')
+            st.success(f"今日出现买入信号的股票（应在【次一交易日开盘】市价买入）:")
+            buy_df = pd.DataFrame({'股票代码': buy_list, '信号日期': buy_dates})
+            st.dataframe(buy_df, use_container_width=True)
+            st.write("👉 建议在第二天开盘（美股9:30AM）以市价买入上表股票")
+            st.download_button('下载今日买入信号csv', buy_df.to_csv(index=False).encode('utf-8'), 'today_buy_signal.csv')
+            st.download_button('下载今日买入信号txt', "\n".join(buy_list).encode('utf-8'), 'today_buy_signal.txt')
             with open(TODAY_SIGNAL_FILE, "w", encoding="utf-8") as f:
-                f.write("\n".join(ordered_buy_list))
+                f.write("\n".join(buy_list))
+        else:
+            st.info("今日无买入信号")
+
+        # ---- 卖出信号展示 ----
+        if sell_list:
+            st.error(f"今日出现平仓信号的股票（应在【次一交易日开盘】市价卖出）:")
+            sell_df = pd.DataFrame({'股票代码': sell_list, '信号日期': sell_dates})
+            st.dataframe(sell_df, use_container_width=True)
+            st.write("👉 建议在第二天开盘（美股9:30AM）以市价卖出上表股票")
+            st.download_button('下载今日卖出信号csv', sell_df.to_csv(index=False).encode('utf-8'), 'today_sell_signal.csv')
+            st.download_button('下载今日卖出信号txt', "\n".join(sell_list).encode('utf-8'), 'today_sell_signal.txt')
+        else:
+            st.info("今日无卖出信号")
+
 
 # TAB3 - 回测表格仅显示简要5列，下载csv为全列
 with tabs[2]:
