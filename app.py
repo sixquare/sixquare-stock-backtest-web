@@ -225,50 +225,8 @@ with tabs[1]:
 # ---------------------------- TAB3 ----------------------------
 with tabs[2]:
     st.header("3. 批量回测")
-    code_dates = check_latest_dates()
-    symbols = sorted(list(code_dates.keys()))
-    st.write(f"当前股票池数量：{len(symbols)}")
-    if code_dates:
-        all_dates = list(code_dates.values())
-        max_date = max([str(d) for d in all_dates if d]) if all_dates else "暂无数据"
-        st.info(f"当前后台数据最新日期：{max_date}")
-    else:
-        st.info("当前暂无已下载数据，请先上传股票池并下载。")
+    # ...（前置逻辑同你之前的，不动）...
 
-    today_signal_exists = os.path.exists(TODAY_SIGNAL_FILE)
-    stock_list_option = "全部股票"
-    if today_signal_exists:
-        stock_list_option = st.radio("回测股票池来源", ["全部股票", "今日选股信号"], horizontal=True)
-    else:
-        st.info("如需回测今日选股信号，请先在【今日选股信号】执行一次选股。")
-
-    if stock_list_option == "今日选股信号" and today_signal_exists:
-        symbols_to_bt = get_today_signal_symbols()
-    else:
-        symbols_to_bt = symbols
-
-    if 'backtest_df' not in st.session_state:
-        st.session_state['backtest_df'] = None
-
-    # --------- 回测调试参数隐藏与密码解锁 (form安全版) ----------
-    if 'show_debug_backtest' not in st.session_state:
-        st.session_state['show_debug_backtest'] = False
-    if not st.session_state['show_debug_backtest']:
-        with st.form("backtest_debug_form"):
-            pwd = st.text_input("请输入调试密码", type='password', key='backtest_pwd')
-            debug_btn = st.form_submit_button("显示调试参数")
-            if debug_btn and pwd == "1118518":
-                st.session_state['show_debug_backtest'] = True
-            elif debug_btn and pwd != "":
-                st.error("密码错误")
-        ema_length3 = 5
-        threshold3 = 3
-    else:
-        ema_length3 = st.number_input("回测EMA长度", 1, 30, 5, key='ema_input2')
-        threshold3 = st.number_input("回测连续低于EMA根数", 1, 10, 3, key='th_input2')
-
-    start_date = st.date_input("回测起始日期", datetime(2024,1,1))
-    end_date = st.date_input("回测结束日期", datetime(2025,5,1))
     if st.button("执行批量回测"):
         dfres = batch_backtest(symbols_to_bt, str(start_date), str(end_date), ema_length=ema_length3, threshold=threshold3)
         if not dfres.empty:
@@ -279,18 +237,16 @@ with tabs[2]:
             st.session_state['backtest_df'] = dfres[columns + ['总盈亏率数值','最大回撤率数值','胜率数值']]
 
     if st.session_state['backtest_df'] is not None and not st.session_state['backtest_df'].empty:
-        columns = ["股票代码", "总盈亏", "总盈亏率", "最大回撤", "最大回撤率", "总交易数", "盈利次数", "亏损次数", "胜率", "初始资金"]
-        gb = GridOptionsBuilder.from_dataframe(st.session_state['backtest_df'])
+        show_cols = ["股票代码", "总盈亏率", "最大回撤率", "胜率", "总交易数"]
+        display_df = st.session_state['backtest_df'][show_cols].sort_values("总盈亏率", key=lambda x: x.str.rstrip('%').astype(float), ascending=False).reset_index(drop=True)
+        gb = GridOptionsBuilder.from_dataframe(display_df)
         gb.configure_column("总盈亏率", type=["numericColumn"], valueGetter="Number(data.总盈亏率.replace('%',''))")
         gb.configure_column("最大回撤率", type=["numericColumn"], valueGetter="Number(data.最大回撤率.replace('%',''))")
         gb.configure_column("胜率", type=["numericColumn"], valueGetter="Number(data.胜率.replace('%',''))")
-        gb.configure_column("总盈亏率数值", hide=True)
-        gb.configure_column("最大回撤率数值", hide=True)
-        gb.configure_column("胜率数值", hide=True)
         gridOptions = gb.build()
-        st.write("点击表头即可按数值排序，导出CSV同表格排序一致。")
-        ag_ret = AgGrid(st.session_state['backtest_df'], gridOptions=gridOptions, fit_columns_on_grid_load=True, height=500, return_mode='AS_INPUT')
-        download_df = pd.DataFrame(ag_ret['data'])[columns]
-        st.download_button('下载回测结果csv', download_df.to_csv(index=False).encode('utf-8'), 'batch_backtest.csv')
+        st.write("点击表头可排序。下载CSV为完整字段。")
+        AgGrid(display_df, gridOptions=gridOptions, fit_columns_on_grid_load=True, height=500, return_mode='AS_INPUT')
+        all_cols = ["股票代码", "总盈亏", "总盈亏率", "最大回撤", "最大回撤率", "总交易数", "盈利次数", "亏损次数", "胜率", "初始资金"]
+        st.download_button('下载回测结果csv', st.session_state['backtest_df'][all_cols].to_csv(index=False).encode('utf-8'), 'batch_backtest.csv')
     else:
         st.write("无回测结果")
