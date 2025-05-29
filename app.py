@@ -159,6 +159,7 @@ st.title("SIXQUARE股市工具")
 
 tabs = st.tabs(["📥 股票池与数据下载", "📊 今日选股信号", "📈 批量回测"])
 
+# ---------------------------- TAB1 ----------------------------
 with tabs[0]:
     st.header("1. 股票池管理 & 批量数据下载")
     stock_txt = st.file_uploader("上传股票代码txt（每行一个代码）", type=['txt'])
@@ -179,6 +180,7 @@ with tabs[0]:
     else:
         st.write("暂无已下载数据，请先上传股票池并下载。")
 
+# ---------------------------- TAB2 ----------------------------
 with tabs[1]:
     st.header("2. 今日选股信号")
     code_dates = check_latest_dates()
@@ -191,9 +193,24 @@ with tabs[1]:
     else:
         st.info("当前暂无已下载数据，请先上传股票池并下载。")
 
-    ema_length = st.number_input("EMA长度", 1, 30, 5, key='ema_input1')
-    threshold = st.number_input("连续低于EMA根数", 1, 10, 3, key='th_input1')
+    # --------- 调试参数隐藏与密码解锁 ----------
+    if 'show_debug_signal' not in st.session_state:
+        st.session_state['show_debug_signal'] = False
+    if not st.session_state['show_debug_signal']:
+        if st.button("显示调试参数", key="show_signal_debug_btn"):
+            pwd = st.text_input("请输入调试密码", type='password', key='signal_pwd')
+            if pwd == "1118518":
+                st.session_state['show_debug_signal'] = True
+                st.experimental_rerun()
+            elif pwd:
+                st.error("密码错误")
+        ema_length = 5
+        threshold = 3
+    else:
+        ema_length = st.number_input("EMA长度", 1, 30, 5, key='ema_input1')
+        threshold = st.number_input("连续低于EMA根数", 1, 10, 3, key='th_input1')
 
+    # --------- 信号按钮 ----------
     if st.button("执行今日选股信号筛选"):
         buy_list = today_signal(symbols, ema_length, threshold)
         st.success(f"今日可买入股票：{', '.join(buy_list) if buy_list else '无'}")
@@ -202,10 +219,10 @@ with tabs[1]:
             st.write(pd.DataFrame({'买入信号股票': ordered_buy_list}))
             st.download_button('下载csv', pd.DataFrame({'买入信号股票': ordered_buy_list}).to_csv(index=False).encode('utf-8'), 'today_buy_signal.csv')
             st.download_button('下载txt(原顺序)', "\n".join(ordered_buy_list).encode('utf-8'), 'today_buy_signal.txt')
-            # 保存到后台 today_buy_signal.txt
             with open(TODAY_SIGNAL_FILE, "w", encoding="utf-8") as f:
                 f.write("\n".join(ordered_buy_list))
 
+# ---------------------------- TAB3 ----------------------------
 with tabs[2]:
     st.header("3. 批量回测")
     code_dates = check_latest_dates()
@@ -218,7 +235,6 @@ with tabs[2]:
     else:
         st.info("当前暂无已下载数据，请先上传股票池并下载。")
 
-    # 支持“全部股票/今日选股信号”回测
     today_signal_exists = os.path.exists(TODAY_SIGNAL_FILE)
     stock_list_option = "全部股票"
     if today_signal_exists:
@@ -234,8 +250,23 @@ with tabs[2]:
     if 'backtest_df' not in st.session_state:
         st.session_state['backtest_df'] = None
 
-    ema_length3 = st.number_input("回测EMA长度", 1, 30, 5, key='ema_input2')
-    threshold3 = st.number_input("回测连续低于EMA根数", 1, 10, 3, key='th_input2')
+    # --------- 回测参数隐藏与密码解锁 ----------
+    if 'show_debug_backtest' not in st.session_state:
+        st.session_state['show_debug_backtest'] = False
+    if not st.session_state['show_debug_backtest']:
+        if st.button("显示调试参数", key="show_backtest_debug_btn"):
+            pwd = st.text_input("请输入调试密码", type='password', key='backtest_pwd')
+            if pwd == "1118518":
+                st.session_state['show_debug_backtest'] = True
+                st.experimental_rerun()
+            elif pwd:
+                st.error("密码错误")
+        ema_length3 = 5
+        threshold3 = 3
+    else:
+        ema_length3 = st.number_input("回测EMA长度", 1, 30, 5, key='ema_input2')
+        threshold3 = st.number_input("回测连续低于EMA根数", 1, 10, 3, key='th_input2')
+    # --------- 回测按钮 ----------
     start_date = st.date_input("回测起始日期", datetime(2024,1,1))
     end_date = st.date_input("回测结束日期", datetime(2025,5,1))
     if st.button("执行批量回测"):
