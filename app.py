@@ -198,7 +198,7 @@ def batch_backtest(symbols, start_date, end_date, initial_capital=10000, ema_len
 st.set_page_config(page_title="SIXQUARE选股AI工具", layout="wide")
 st.title("SIXQUARE选股AI工具")
 
-tabs = st.tabs(["📥 股票池与数据下载", "今日选股信号", "批量回测"])
+tabs = st.tabs(["股票池与数据下载", "今日选股信号", "批量回测"])
 
 # TAB1
 with tabs[0]:
@@ -271,7 +271,7 @@ with tabs[1]:
             st.dataframe(filtered_buy_df, use_container_width=True)
             dt = max([datetime.strptime(str(d)[:10], '%Y-%m-%d') for d in filtered_buy_df['信号日期']])
             next_day = dt + timedelta(days=1)
-            st.write(f"👉 建议{next_day.strftime('%Y.%m.%d')}开盘市价买入")
+            st.write(f"建议{next_day.strftime('%Y.%m.%d')}开盘市价买入")
             st.download_button('下载今日买入信号csv', filtered_buy_df.to_csv(index=False).encode(), '今日买入信号.csv', 'text/csv')
             st.download_button('下载今日买入信号txt', '\n'.join(filtered_buy_df['股票代码']), '今日买入信号.txt')
             with open(TODAY_SIGNAL_FILE, "w", encoding="utf-8") as f:
@@ -284,7 +284,7 @@ with tabs[1]:
             st.dataframe(filtered_sell_df, use_container_width=True)
             dt = max([datetime.strptime(str(d)[:10], '%Y-%m-%d') for d in filtered_sell_df['信号日期']])
             next_day = dt + timedelta(days=1)
-            st.write(f"👉 建议{next_day.strftime('%Y.%m.%d')}开盘市价卖出")
+            st.write(f"建议{next_day.strftime('%Y.%m.%d')}开盘市价卖出")
             st.download_button('下载今日卖出信号csv', filtered_sell_df.to_csv(index=False).encode(), '今日卖出信号.csv', 'text/csv')
             st.download_button('下载今日卖出信号txt', '\n'.join(filtered_sell_df['股票代码']), '今日卖出信号.txt')
         else:
