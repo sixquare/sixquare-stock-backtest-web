@@ -51,6 +51,8 @@ def get_data_symbols():
 
 def check_latest_dates():
     code_dates = {}
+    if not os.path.exists(DATA_DIR):
+        return code_dates
     for file in os.listdir(DATA_DIR):
         if file.endswith('.csv'):
             code = file.replace('.csv', '')
@@ -151,7 +153,7 @@ def batch_backtest(symbols, start_date, end_date, initial_capital=10000, ema_len
 def to_percent_float(series):
     return series.str.rstrip('%').astype(float)
 
-st.set_page_config(page_title="SIXQUARE股市工具", layout="wide")
+st.set_page_config(page_title="美股批量选股 & 回测 Web 工具", layout="wide")
 st.title("SIXQUARE股市工具")
 
 tabs = st.tabs(["📥 股票池与数据下载", "📊 今日选股信号", "📈 批量回测"])
@@ -216,8 +218,17 @@ with tabs[1]:
         buy_list = today_signal(symbols, ema_length, threshold)
         st.success(f"今日可买入股票：{', '.join(buy_list) if buy_list else '无'}")
         if buy_list:
-            st.write(pd.DataFrame({'买入信号股票': buy_list}))
-            st.download_button('下载csv', pd.DataFrame({'买入信号股票': buy_list}).to_csv(index=False).encode('utf-8'), 'today_buy_signal.csv')
+            # 排序按原symbols顺序
+            ordered_buy_list = [code for code in symbols if code in buy_list]
+            st.write(pd.DataFrame({'买入信号股票': ordered_buy_list}))
+            # CSV下载按钮
+            st.download_button('下载csv', pd.DataFrame({'买入信号股票': ordered_buy_list}).to_csv(index=False).encode('utf-8'), 'today_buy_signal.csv')
+            # 新增txt下载按钮（每行一个股票代码，顺序和stocks.txt一致）
+            st.download_button(
+                '下载txt(原顺序)',
+                "\n".join(ordered_buy_list).encode('utf-8'),
+                'today_buy_signal.txt'
+            )
 
 with tabs[2]:
     st.header("3. 批量回测")
@@ -232,7 +243,6 @@ with tabs[2]:
     symbols = sorted(list(code_dates.keys()))
     st.write(f"当前股票池数量：{len(symbols)}")
 
-    # --- session_state 用于保存回测结果，避免刷新或排序消失 ---
     if 'backtest_df' not in st.session_state:
         st.session_state['backtest_df'] = None
 
@@ -265,7 +275,6 @@ with tabs[2]:
     if st.button("执行批量回测"):
         dfres = batch_backtest(symbols, str(start_date), str(end_date), ema_length=ema_length3, threshold=threshold3)
         if not dfres.empty:
-            # 新建所有辅助列
             dfres['总盈亏率数值'] = to_percent_float(dfres['总盈亏率'])
             dfres['最大回撤率数值'] = to_percent_float(dfres['最大回撤率'])
             dfres['胜率数值'] = to_percent_float(dfres['胜率'])
@@ -274,7 +283,6 @@ with tabs[2]:
 
     if st.session_state['backtest_df'] is not None and not st.session_state['backtest_df'].empty:
         columns = ["股票代码", "总盈亏", "总盈亏率", "最大回撤", "最大回撤率", "总交易数", "盈利次数", "亏损次数", "胜率", "初始资金"]
-        # 配置AgGrid
         gb = GridOptionsBuilder.from_dataframe(st.session_state['backtest_df'])
         gb.configure_column("总盈亏率", type=["numericColumn"], valueGetter="Number(data.总盈亏率.replace('%',''))")
         gb.configure_column("最大回撤率", type=["numericColumn"], valueGetter="Number(data.最大回撤率.replace('%',''))")
@@ -283,10 +291,8 @@ with tabs[2]:
         gb.configure_column("最大回撤率数值", hide=True)
         gb.configure_column("胜率数值", hide=True)
         gridOptions = gb.build()
-
         st.write("点击表头即可按数值排序，导出CSV同表格排序一致。")
         ag_ret = AgGrid(st.session_state['backtest_df'], gridOptions=gridOptions, fit_columns_on_grid_load=True, height=500, return_mode='AS_INPUT')
-        # 导出排序后数据
         download_df = pd.DataFrame(ag_ret['data'])[columns]
         st.download_button('下载回测结果csv', download_df.to_csv(index=False).encode('utf-8'), 'batch_backtest.csv')
     else:
