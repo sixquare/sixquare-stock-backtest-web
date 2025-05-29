@@ -181,6 +181,7 @@ with tabs[0]:
         st.write("暂无已下载数据，请先上传股票池并下载。")
 
 # ---------------------------- TAB2 ----------------------------
+# ...前面内容和原来一样，直到tabs[1]
 with tabs[1]:
     st.header("2. 今日选股信号")
     code_dates = check_latest_dates()
@@ -193,14 +194,19 @@ with tabs[1]:
     else:
         st.info("当前暂无已下载数据，请先上传股票池并下载。")
 
-    # --------- 调试参数隐藏与密码解锁 ----------
+    # --------- 调试参数隐藏与密码解锁 (修正版) ----------
     if 'show_debug_signal' not in st.session_state:
         st.session_state['show_debug_signal'] = False
     if not st.session_state['show_debug_signal']:
-        if st.button("显示调试参数", key="show_signal_debug_btn"):
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("显示调试参数", key="show_signal_debug_btn"):
+                st.session_state['show_signal_pwd_input'] = True
+        if st.session_state.get('show_signal_pwd_input', False):
             pwd = st.text_input("请输入调试密码", type='password', key='signal_pwd')
             if pwd == "1118518":
                 st.session_state['show_debug_signal'] = True
+                st.session_state['show_signal_pwd_input'] = False
                 st.experimental_rerun()
             elif pwd:
                 st.error("密码错误")
@@ -210,7 +216,6 @@ with tabs[1]:
         ema_length = st.number_input("EMA长度", 1, 30, 5, key='ema_input1')
         threshold = st.number_input("连续低于EMA根数", 1, 10, 3, key='th_input1')
 
-    # --------- 信号按钮 ----------
     if st.button("执行今日选股信号筛选"):
         buy_list = today_signal(symbols, ema_length, threshold)
         st.success(f"今日可买入股票：{', '.join(buy_list) if buy_list else '无'}")
@@ -222,7 +227,7 @@ with tabs[1]:
             with open(TODAY_SIGNAL_FILE, "w", encoding="utf-8") as f:
                 f.write("\n".join(ordered_buy_list))
 
-# ---------------------------- TAB3 ----------------------------
+# ... tabs[2]同理
 with tabs[2]:
     st.header("3. 批量回测")
     code_dates = check_latest_dates()
@@ -250,14 +255,19 @@ with tabs[2]:
     if 'backtest_df' not in st.session_state:
         st.session_state['backtest_df'] = None
 
-    # --------- 回测参数隐藏与密码解锁 ----------
+    # --------- 回测调试参数隐藏与密码解锁 (修正版) ----------
     if 'show_debug_backtest' not in st.session_state:
         st.session_state['show_debug_backtest'] = False
     if not st.session_state['show_debug_backtest']:
-        if st.button("显示调试参数", key="show_backtest_debug_btn"):
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("显示调试参数", key="show_backtest_debug_btn"):
+                st.session_state['show_backtest_pwd_input'] = True
+        if st.session_state.get('show_backtest_pwd_input', False):
             pwd = st.text_input("请输入调试密码", type='password', key='backtest_pwd')
             if pwd == "1118518":
                 st.session_state['show_debug_backtest'] = True
+                st.session_state['show_backtest_pwd_input'] = False
                 st.experimental_rerun()
             elif pwd:
                 st.error("密码错误")
@@ -266,7 +276,7 @@ with tabs[2]:
     else:
         ema_length3 = st.number_input("回测EMA长度", 1, 30, 5, key='ema_input2')
         threshold3 = st.number_input("回测连续低于EMA根数", 1, 10, 3, key='th_input2')
-    # --------- 回测按钮 ----------
+
     start_date = st.date_input("回测起始日期", datetime(2024,1,1))
     end_date = st.date_input("回测结束日期", datetime(2025,5,1))
     if st.button("执行批量回测"):
