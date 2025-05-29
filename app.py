@@ -5,7 +5,7 @@ import os
 import shutil
 import akshare as ak
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from st_aggrid import AgGrid, GridOptionsBuilder
 
 DATA_DIR = "data"
@@ -16,9 +16,7 @@ def clear_data_dir():
         shutil.rmtree(DATA_DIR)
     os.makedirs(DATA_DIR, exist_ok=True)
 
-# ---- 新增自动识别A股/美股代码 ----
 def get_stock_type_and_symbol(code):
-    # 判断A股
     if len(code) == 6 and code.isdigit():
         if code.startswith('6'):
             return 'a', 'sh' + code
@@ -99,7 +97,6 @@ def get_today_signal_symbols():
             return [line.strip() for line in f if line.strip()]
     return []
 
-# --- 信号逻辑与回测 ---
 def today_signal_and_exit(symbols, ema_length=5, threshold=3):
     buy_list, sell_list = [], []
     buy_dates, sell_dates = [], []
@@ -109,14 +106,12 @@ def today_signal_and_exit(symbols, ema_length=5, threshold=3):
             if df.empty or len(df) < ema_length + threshold + 2:
                 continue
             df['EMA'] = df['Close'].ewm(span=ema_length, adjust=False).mean()
-            # 买入信号
             below_ema = df['Close'] < df['EMA']
             for i in range(threshold, len(df)):
                 if all(below_ema.iloc[i-threshold+1:i+1]) and i == len(df)-1:
                     buy_list.append(code)
                     buy_dates.append(df['Date'].iloc[i])
                     break
-            # 卖出信号（平仓：收盘价>昨高）
             for i in range(1, len(df)):
                 if df['Close'].iloc[i] > df['High'].iloc[i-1] and i == len(df)-1:
                     sell_list.append(code)
@@ -227,7 +222,6 @@ with tabs[0]:
         st.write("暂无已下载数据，请先上传股票池并下载。")
 
 # TAB2
-from datetime import datetime, timedelta
 with tabs[1]:
     st.header("2. 今日选股与卖出信号")
     code_dates = check_latest_dates()
@@ -257,30 +251,42 @@ with tabs[1]:
 
     if st.button("执行今日选股信号筛选"):
         buy_list, buy_dates, sell_list, sell_dates = today_signal_and_exit(symbols, ema_length, threshold)
+        buy_df = pd.DataFrame({'股票代码': buy_list, '信号日期': buy_dates})
+        sell_df = pd.DataFrame({'股票代码': sell_list, '信号日期': sell_dates})
+        # 过滤：同一天既有买又有卖，只保留卖出
+        if not buy_df.empty and not sell_df.empty:
+            both_signals = pd.merge(buy_df, sell_df, on=['股票代码', '信号日期'], how='inner')
+            filtered_buy_df = buy_df[
+                ~buy_df.set_index(['股票代码', '信号日期']).index.isin(
+                    both_signals.set_index(['股票代码', '信号日期']).index
+                )
+            ]
+        else:
+            filtered_buy_df = buy_df.copy()
+        filtered_sell_df = sell_df.copy()
+
         # 买入信号
-        if buy_list:
-            st.success(f"今日可买入股票：{', '.join(buy_list)}")
-            buy_df = pd.DataFrame({'股票代码': buy_list, '信号日期': buy_dates})
-            st.dataframe(buy_df, use_container_width=True)
-            dt = max([datetime.strptime(str(d)[:10], '%Y-%m-%d') for d in buy_dates])
+        if not filtered_buy_df.empty:
+            st.success(f"今日可买入股票：{', '.join(filtered_buy_df['股票代码'])}")
+            st.dataframe(filtered_buy_df, use_container_width=True)
+            dt = max([datetime.strptime(str(d)[:10], '%Y-%m-%d') for d in filtered_buy_df['信号日期']])
             next_day = dt + timedelta(days=1)
             st.write(f"👉 建议{next_day.strftime('%Y.%m.%d')}开盘（美股9:30AM）市价买入")
-            st.download_button('下载今日买入信号csv', buy_df.to_csv(index=False).encode(), '今日买入信号.csv', 'text/csv')
-            st.download_button('下载今日买入信号txt', '\n'.join(buy_list), '今日买入信号.txt')
+            st.download_button('下载今日买入信号csv', filtered_buy_df.to_csv(index=False).encode(), '今日买入信号.csv', 'text/csv')
+            st.download_button('下载今日买入信号txt', '\n'.join(filtered_buy_df['股票代码']), '今日买入信号.txt')
             with open(TODAY_SIGNAL_FILE, "w", encoding="utf-8") as f:
-                f.write("\n".join(buy_list))
+                f.write("\n".join(filtered_buy_df['股票代码']))
         else:
             st.info("今日无买入信号")
         # 卖出信号
-        if sell_list:
-            st.error(f"今日需卖出股票：{', '.join(sell_list)}")
-            sell_df = pd.DataFrame({'股票代码': sell_list, '信号日期': sell_dates})
-            st.dataframe(sell_df, use_container_width=True)
-            dt = max([datetime.strptime(str(d)[:10], '%Y-%m-%d') for d in sell_dates])
+        if not filtered_sell_df.empty:
+            st.error(f"今日需卖出股票：{', '.join(filtered_sell_df['股票代码'])}")
+            st.dataframe(filtered_sell_df, use_container_width=True)
+            dt = max([datetime.strptime(str(d)[:10], '%Y-%m-%d') for d in filtered_sell_df['信号日期']])
             next_day = dt + timedelta(days=1)
             st.write(f"👉 建议{next_day.strftime('%Y.%m.%d')}开盘（美股9:30AM）市价卖出")
-            st.download_button('下载今日卖出信号csv', sell_df.to_csv(index=False).encode(), '今日卖出信号.csv', 'text/csv')
-            st.download_button('下载今日卖出信号txt', '\n'.join(sell_list), '今日卖出信号.txt')
+            st.download_button('下载今日卖出信号csv', filtered_sell_df.to_csv(index=False).encode(), '今日卖出信号.csv', 'text/csv')
+            st.download_button('下载今日卖出信号txt', '\n'.join(filtered_sell_df['股票代码']), '今日卖出信号.txt')
         else:
             st.info("今日无卖出信号")
 
@@ -332,7 +338,6 @@ with tabs[2]:
             dfres['最大回撤率数值'] = to_percent_float(dfres['最大回撤率'])
             dfres['胜率数值'] = to_percent_float(dfres['胜率'])
             st.session_state['backtest_df'] = dfres
-    # 只显示精简5列
     display_cols = ["股票代码", "总盈亏率", "最大回撤率", "胜率", "总交易数"]
     all_cols = ["股票代码", "总盈亏", "总盈亏率", "最大回撤", "最大回撤率", "总交易数", "盈利次数", "亏损次数", "胜率", "初始资金"]
     if st.session_state['backtest_df'] is not None and not st.session_state['backtest_df'].empty:
