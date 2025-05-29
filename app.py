@@ -154,7 +154,7 @@ def get_today_signal_symbols():
             return [line.strip() for line in f if line.strip()]
     return []
 
-st.set_page_config(page_title="美股批量选股 & 回测 Web 工具", layout="wide")
+st.set_page_config(page_title="SIXQUARE股市工具", layout="wide")
 st.title("SIXQUARE股市工具")
 
 tabs = st.tabs(["📥 股票池与数据下载", "📊 今日选股信号", "📈 批量回测"])
