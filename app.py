@@ -154,7 +154,12 @@ tab1, tab2, tab3 = st.tabs(["股票池与数据下载", "今日选股信号", "�
 with tab1:
     st.subheader("1. 股票池管理 & 批量数据下载")
     latest_dates = check_latest_dates()
-    st.markdown(f"当前已下载股票及其数据最新日期：{'，'.join(latest_dates.values()) if latest_dates else '暂无数据'}")
+    if latest_dates:
+        max_date = max(latest_dates.values())
+        st.markdown(f"当前股票池数据最新日期：<b>{max_date}</b>", unsafe_allow_html=True)
+    else:
+        st.markdown("暂无数据")
+
     uploaded_file = st.file_uploader("上传股票代码txt（每行一个代码）", type=['txt'])
     if uploaded_file:
         codes = [i.strip().upper() for i in uploaded_file.read().decode().splitlines() if i.strip()]
