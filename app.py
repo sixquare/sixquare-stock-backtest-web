@@ -222,8 +222,10 @@ with tabs[1]:
             ordered_buy_list = [code for code in symbols if code in buy_list]
             st.write(pd.DataFrame({'买入信号股票': ordered_buy_list}))
             # CSV下载按钮
-            st.download_button('下载csv', pd.DataFrame({'买入信号股票': ordered_buy_list}).to_csv(index=False).encode('utf-8'), 'today_buy_signal.csv')
-            # 新增txt下载按钮（每行一个股票代码，顺序和stocks.txt一致）
+            st.download_button('下载csv',
+                               pd.DataFrame({'买入信号股票': ordered_buy_list}).to_csv(index=False).encode('utf-8'),
+                               'today_buy_signal.csv')
+            # TXT下载按钮（每行一个代码，顺序和stocks.txt一致）
             st.download_button(
                 '下载txt(原顺序)',
                 "\n".join(ordered_buy_list).encode('utf-8'),
