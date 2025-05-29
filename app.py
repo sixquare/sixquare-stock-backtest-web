@@ -11,7 +11,7 @@ RESULT_DIR = "result"
 if not os.path.exists(RESULT_DIR):
     os.makedirs(RESULT_DIR)
 
-st.set_page_config("美股批量量化选股&回测Web工具", layout="wide")
+st.set_page_config("SIXQUARE AI选股", layout="wide")
 
 # 1. 读取最新日期
 def check_latest_dates():
