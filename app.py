@@ -9,6 +9,7 @@ from datetime import datetime
 from st_aggrid import AgGrid, GridOptionsBuilder
 
 DATA_DIR = "data"
+TODAY_SIGNAL_FILE = "today_buy_signal.txt"
 
 def clear_data_dir():
     if os.path.exists(DATA_DIR):
@@ -16,7 +17,8 @@ def clear_data_dir():
     os.makedirs(DATA_DIR, exist_ok=True)
 
 def batch_download(symbols, data_dir=DATA_DIR):
-    clear_data_dir()
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir, exist_ok=True)
     status = []
     date_map = {}
     for code in symbols:
@@ -42,21 +44,14 @@ def batch_download(symbols, data_dir=DATA_DIR):
             status.append((code, f"失败：{e}", ""))
     return status, date_map
 
-def get_data_symbols():
-    if not os.path.exists(DATA_DIR):
-        return []
-    files = [f for f in os.listdir(DATA_DIR) if f.endswith('.csv')]
-    codes = [f.replace('.csv', '') for f in files]
-    return codes
-
-def check_latest_dates():
+def check_latest_dates(data_dir=DATA_DIR):
     code_dates = {}
-    if not os.path.exists(DATA_DIR):
+    if not os.path.exists(data_dir):
         return code_dates
-    for file in os.listdir(DATA_DIR):
+    for file in os.listdir(data_dir):
         if file.endswith('.csv'):
             code = file.replace('.csv', '')
-            df = pd.read_csv(os.path.join(DATA_DIR, file))
+            df = pd.read_csv(os.path.join(data_dir, file))
             if not df.empty:
                 code_dates[code] = df['Date'].iloc[-1]
     return code_dates
@@ -84,11 +79,11 @@ def calc_max_drawdown(equity_curve):
     max_drawdown_rate = max_drawdown / cummax[np.argmin(drawdown)] if cummax[np.argmin(drawdown)] != 0 else 0
     return abs(max_drawdown), abs(max_drawdown_rate)
 
-def batch_backtest(symbols, start_date, end_date, initial_capital=10000, ema_length=5, threshold=3):
+def batch_backtest(symbols, start_date, end_date, initial_capital=10000, ema_length=5, threshold=3, data_dir=DATA_DIR):
     results = []
     for code in symbols:
         try:
-            fpath = os.path.join(DATA_DIR, f"{code}.csv")
+            fpath = os.path.join(data_dir, f"{code}.csv")
             if not os.path.exists(fpath):
                 continue
             df = pd.read_csv(fpath)
@@ -153,6 +148,12 @@ def batch_backtest(symbols, start_date, end_date, initial_capital=10000, ema_len
 def to_percent_float(series):
     return series.str.rstrip('%').astype(float)
 
+def get_today_signal_symbols():
+    if os.path.exists(TODAY_SIGNAL_FILE):
+        with open(TODAY_SIGNAL_FILE, "r", encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip()]
+    return []
+
 st.set_page_config(page_title="美股批量选股 & 回测 Web 工具", layout="wide")
 st.title("SIXQUARE股市工具")
 
@@ -165,6 +166,7 @@ with tabs[0]:
         symbols = [line.decode('utf-8').strip().upper() for line in stock_txt if line.strip()]
         st.write(f"已导入股票数量: {len(symbols)}")
         if st.button("一键下载最新日K数据"):
+            clear_data_dir()
             status, date_map = batch_download(symbols)
             st.success("下载完毕！")
             dfres = pd.DataFrame(status, columns=['代码', '状态', '最新日期'])
@@ -180,102 +182,64 @@ with tabs[0]:
 with tabs[1]:
     st.header("2. 今日选股信号")
     code_dates = check_latest_dates()
+    symbols = sorted(list(code_dates.keys()))
+    st.write(f"当前股票池数量：{len(symbols)}")
     if code_dates:
         all_dates = list(code_dates.values())
-        all_dates = [str(d) for d in all_dates if d]
-        max_date = max(all_dates) if all_dates else "暂无数据"
+        max_date = max([str(d) for d in all_dates if d]) if all_dates else "暂无数据"
         st.info(f"当前后台数据最新日期：{max_date}")
     else:
         st.info("当前暂无已下载数据，请先上传股票池并下载。")
-    symbols = sorted(list(code_dates.keys()))
-    st.write(f"当前股票池数量：{len(symbols)}")
 
-    if 'debug1_unlock' not in st.session_state:
-        st.session_state['debug1_unlock'] = False
-    if 'debug1_ask' not in st.session_state:
-        st.session_state['debug1_ask'] = False
-
-    if not st.session_state['debug1_unlock']:
-        if not st.session_state['debug1_ask']:
-            if st.button("显示调试参数", key='show_debug1'):
-                st.session_state['debug1_ask'] = True
-        if st.session_state['debug1_ask']:
-            pwd = st.text_input("请输入调试密码", type="password", key="pwd_input1")
-            if st.button("确认密码", key="pwd_btn1"):
-                if pwd == "1118518":
-                    st.success("密码正确，已解锁参数设置！")
-                    st.session_state['debug1_unlock'] = True
-                elif pwd:
-                    st.error("密码错误，请重试")
-    if st.session_state['debug1_unlock']:
-        ema_length = st.number_input("EMA长度", 1, 30, 5, key='ema_input1')
-        threshold = st.number_input("连续低于EMA根数", 1, 10, 3, key='th_input1')
-    else:
-        ema_length = 5
-        threshold = 3
+    ema_length = st.number_input("EMA长度", 1, 30, 5, key='ema_input1')
+    threshold = st.number_input("连续低于EMA根数", 1, 10, 3, key='th_input1')
 
     if st.button("执行今日选股信号筛选"):
         buy_list = today_signal(symbols, ema_length, threshold)
         st.success(f"今日可买入股票：{', '.join(buy_list) if buy_list else '无'}")
         if buy_list:
-            # 排序按原symbols顺序
             ordered_buy_list = [code for code in symbols if code in buy_list]
             st.write(pd.DataFrame({'买入信号股票': ordered_buy_list}))
-            # CSV下载按钮
-            st.download_button('下载csv',
-                               pd.DataFrame({'买入信号股票': ordered_buy_list}).to_csv(index=False).encode('utf-8'),
-                               'today_buy_signal.csv')
-            # TXT下载按钮（每行一个代码，顺序和stocks.txt一致）
-            st.download_button(
-                '下载txt(原顺序)',
-                "\n".join(ordered_buy_list).encode('utf-8'),
-                'today_buy_signal.txt'
-            )
+            st.download_button('下载csv', pd.DataFrame({'买入信号股票': ordered_buy_list}).to_csv(index=False).encode('utf-8'), 'today_buy_signal.csv')
+            st.download_button('下载txt(原顺序)', "\n".join(ordered_buy_list).encode('utf-8'), 'today_buy_signal.txt')
+            # 保存到后台 today_buy_signal.txt
+            with open(TODAY_SIGNAL_FILE, "w", encoding="utf-8") as f:
+                f.write("\n".join(ordered_buy_list))
 
 with tabs[2]:
     st.header("3. 批量回测")
     code_dates = check_latest_dates()
+    symbols = sorted(list(code_dates.keys()))
+    st.write(f"当前股票池数量：{len(symbols)}")
     if code_dates:
         all_dates = list(code_dates.values())
-        all_dates = [str(d) for d in all_dates if d]
-        max_date = max(all_dates) if all_dates else "暂无数据"
+        max_date = max([str(d) for d in all_dates if d]) if all_dates else "暂无数据"
         st.info(f"当前后台数据最新日期：{max_date}")
     else:
         st.info("当前暂无已下载数据，请先上传股票池并下载。")
-    symbols = sorted(list(code_dates.keys()))
-    st.write(f"当前股票池数量：{len(symbols)}")
+
+    # 支持“全部股票/今日选股信号”回测
+    today_signal_exists = os.path.exists(TODAY_SIGNAL_FILE)
+    stock_list_option = "全部股票"
+    if today_signal_exists:
+        stock_list_option = st.radio("回测股票池来源", ["全部股票", "今日选股信号"], horizontal=True)
+    else:
+        st.info("如需回测今日选股信号，请先在【今日选股信号】执行一次选股。")
+
+    if stock_list_option == "今日选股信号" and today_signal_exists:
+        symbols_to_bt = get_today_signal_symbols()
+    else:
+        symbols_to_bt = symbols
 
     if 'backtest_df' not in st.session_state:
         st.session_state['backtest_df'] = None
 
-    if 'debug2_unlock' not in st.session_state:
-        st.session_state['debug2_unlock'] = False
-    if 'debug2_ask' not in st.session_state:
-        st.session_state['debug2_ask'] = False
-
-    if not st.session_state['debug2_unlock']:
-        if not st.session_state['debug2_ask']:
-            if st.button("显示调试参数", key='show_debug2'):
-                st.session_state['debug2_ask'] = True
-        if st.session_state['debug2_ask']:
-            pwd2 = st.text_input("请输入调试密码", type="password", key="pwd_input2")
-            if st.button("确认密码", key="pwd_btn2"):
-                if pwd2 == "1118518":
-                    st.success("密码正确，已解锁参数设置！")
-                    st.session_state['debug2_unlock'] = True
-                elif pwd2:
-                    st.error("密码错误，请重试")
-    if st.session_state['debug2_unlock']:
-        ema_length3 = st.number_input("EMA长度", 1, 30, 5, key='ema_input2')
-        threshold3 = st.number_input("连续低于EMA根数", 1, 10, 3, key='th_input2')
-    else:
-        ema_length3 = 5
-        threshold3 = 3
-
+    ema_length3 = st.number_input("回测EMA长度", 1, 30, 5, key='ema_input2')
+    threshold3 = st.number_input("回测连续低于EMA根数", 1, 10, 3, key='th_input2')
     start_date = st.date_input("回测起始日期", datetime(2024,1,1))
     end_date = st.date_input("回测结束日期", datetime(2025,5,1))
     if st.button("执行批量回测"):
-        dfres = batch_backtest(symbols, str(start_date), str(end_date), ema_length=ema_length3, threshold=threshold3)
+        dfres = batch_backtest(symbols_to_bt, str(start_date), str(end_date), ema_length=ema_length3, threshold=threshold3)
         if not dfres.empty:
             dfres['总盈亏率数值'] = to_percent_float(dfres['总盈亏率'])
             dfres['最大回撤率数值'] = to_percent_float(dfres['最大回撤率'])
