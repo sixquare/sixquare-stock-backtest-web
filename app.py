@@ -202,7 +202,6 @@ with tabs[1]:
             debug_btn = st.form_submit_button("显示调试参数")
             if debug_btn and pwd == "1118518":
                 st.session_state['show_debug_signal'] = True
-                st.session_state['signal_pwd'] = ""
             elif debug_btn and pwd != "":
                 st.error("密码错误")
         ema_length = 5
@@ -260,7 +259,6 @@ with tabs[2]:
             debug_btn = st.form_submit_button("显示调试参数")
             if debug_btn and pwd == "1118518":
                 st.session_state['show_debug_backtest'] = True
-                st.session_state['backtest_pwd'] = ""
             elif debug_btn and pwd != "":
                 st.error("密码错误")
         ema_length3 = 5
