@@ -1,5 +1,7 @@
 streamlit
-akshare
+streamlit-aggrid
 pandas
 numpy
-streamlit-aggrid
+yfinance
+akshare
+matplotlib
