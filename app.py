@@ -16,32 +16,66 @@ def clear_data_dir():
         shutil.rmtree(DATA_DIR)
     os.makedirs(DATA_DIR, exist_ok=True)
 
+# ---- 新增自动识别A股/美股代码 ----
+def get_stock_type_and_symbol(code):
+    # 判断A股
+    if len(code) == 6 and code.isdigit():
+        if code.startswith('6'):
+            return 'a', 'sh' + code
+        elif code.startswith('0') or code.startswith('3'):
+            return 'a', 'sz' + code
+        else:
+            return 'unknown', code
+    else:
+        return 'us', code.upper()
+
 def batch_download(symbols, data_dir=DATA_DIR):
     if not os.path.exists(data_dir):
         os.makedirs(data_dir, exist_ok=True)
     status = []
     date_map = {}
     for code in symbols:
+        stock_type, symbol = get_stock_type_and_symbol(code)
         try:
-            df = ak.stock_us_daily(symbol=code)
-            if not df.empty:
-                df = df.rename(columns={
-                    'date': 'Date',
-                    'open': 'Open',
-                    'high': 'High',
-                    'low': 'Low',
-                    'close': 'Close'
-                })
-                df = df[['Date', 'Open', 'High', 'Low', 'Close']]
-                df.to_csv(f"{data_dir}/{code}.csv", index=False)
-                latest_date = df['Date'].iloc[-1]
-                status.append((code, "成功", latest_date))
-                date_map[code] = latest_date
+            if stock_type == 'a':
+                df = ak.stock_zh_a_daily(symbol=symbol, adjust="qfq")
+                if not df.empty:
+                    df = df.rename(columns={
+                        'date': 'Date',
+                        'open': 'Open',
+                        'high': 'High',
+                        'low': 'Low',
+                        'close': 'Close'
+                    })
+                    df = df[['Date', 'Open', 'High', 'Low', 'Close']]
+                    df.to_csv(f"{data_dir}/{code}.csv", index=False)
+                    latest_date = df['Date'].iloc[-1]
+                    status.append((code, "A股-成功", latest_date))
+                    date_map[code] = latest_date
+                else:
+                    status.append((code, "A股-无数据", ""))
+            elif stock_type == 'us':
+                df = ak.stock_us_daily(symbol=symbol)
+                if not df.empty:
+                    df = df.rename(columns={
+                        'date': 'Date',
+                        'open': 'Open',
+                        'high': 'High',
+                        'low': 'Low',
+                        'close': 'Close'
+                    })
+                    df = df[['Date', 'Open', 'High', 'Low', 'Close']]
+                    df.to_csv(f"{data_dir}/{code}.csv", index=False)
+                    latest_date = df['Date'].iloc[-1]
+                    status.append((code, "美股-成功", latest_date))
+                    date_map[code] = latest_date
+                else:
+                    status.append((code, "美股-无数据", ""))
             else:
-                status.append((code, "无数据", ""))
+                status.append((code, "未知代码/不支持", ""))
             time.sleep(0.2)
         except Exception as e:
-            status.append((code, f"失败：{e}", ""))
+            status.append((code, f"{stock_type}-失败：{e}", ""))
     return status, date_map
 
 def check_latest_dates(data_dir=DATA_DIR):
@@ -193,6 +227,7 @@ with tabs[0]:
         st.write("暂无已下载数据，请先上传股票池并下载。")
 
 # TAB2
+from datetime import datetime, timedelta
 with tabs[1]:
     st.header("2. 今日选股与卖出信号")
     code_dates = check_latest_dates()
@@ -220,26 +255,22 @@ with tabs[1]:
         ema_length = st.number_input("EMA长度", 1, 30, 5, key='ema_input1')
         threshold = st.number_input("连续低于EMA根数", 1, 10, 3, key='th_input1')
 
-    from datetime import datetime, timedelta
-
     if st.button("执行今日选股信号筛选"):
         buy_list, buy_dates, sell_list, sell_dates = today_signal_and_exit(symbols, ema_length, threshold)
-
         # 买入信号
         if buy_list:
             st.success(f"今日可买入股票：{', '.join(buy_list)}")
             buy_df = pd.DataFrame({'股票代码': buy_list, '信号日期': buy_dates})
             st.dataframe(buy_df, use_container_width=True)
-            # 找到所有信号日期中的最晚日期
             dt = max([datetime.strptime(str(d)[:10], '%Y-%m-%d') for d in buy_dates])
             next_day = dt + timedelta(days=1)
             st.write(f"👉 建议{next_day.strftime('%Y.%m.%d')}开盘（美股9:30AM）市价买入")
-            st.download_button('下载今日买入信号csv', buy_df.to_csv(index=False).encode(), '今日买入信号.csv',
-                               'text/csv')
+            st.download_button('下载今日买入信号csv', buy_df.to_csv(index=False).encode(), '今日买入信号.csv', 'text/csv')
             st.download_button('下载今日买入信号txt', '\n'.join(buy_list), '今日买入信号.txt')
+            with open(TODAY_SIGNAL_FILE, "w", encoding="utf-8") as f:
+                f.write("\n".join(buy_list))
         else:
             st.info("今日无买入信号")
-
         # 卖出信号
         if sell_list:
             st.error(f"今日需卖出股票：{', '.join(sell_list)}")
@@ -248,8 +279,7 @@ with tabs[1]:
             dt = max([datetime.strptime(str(d)[:10], '%Y-%m-%d') for d in sell_dates])
             next_day = dt + timedelta(days=1)
             st.write(f"👉 建议{next_day.strftime('%Y.%m.%d')}开盘（美股9:30AM）市价卖出")
-            st.download_button('下载今日卖出信号csv', sell_df.to_csv(index=False).encode(), '今日卖出信号.csv',
-                               'text/csv')
+            st.download_button('下载今日卖出信号csv', sell_df.to_csv(index=False).encode(), '今日卖出信号.csv', 'text/csv')
             st.download_button('下载今日卖出信号txt', '\n'.join(sell_list), '今日卖出信号.txt')
         else:
             st.info("今日无卖出信号")
