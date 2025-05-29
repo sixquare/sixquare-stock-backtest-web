@@ -242,7 +242,7 @@ with tabs[2]:
     bt_df = st.session_state.get('bt_df', None)
     if isinstance(bt_df, pd.DataFrame) and not bt_df.empty:
         gb = GridOptionsBuilder.from_dataframe(bt_df)
-        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_pagination(paginationAutoPageSize=False)
         gb.configure_default_column(editable=False, groupable=True)
         gb.configure_side_bar()
         gb.configure_column('总盈亏率', type=["numericColumn", "numberColumnFilter", "customNumericFormat"], precision=2)
