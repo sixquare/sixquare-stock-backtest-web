@@ -151,8 +151,8 @@ def batch_backtest(symbols, start_date, end_date, initial_capital=10000, ema_len
 def to_percent_float(series):
     return series.str.rstrip('%').astype(float)
 
-st.set_page_config(page_title="SIXQUARE美股工具", layout="wide")
-st.title("SIXQUARE美股工具")
+st.set_page_config(page_title="SIXQUARE股市工具", layout="wide")
+st.title("SIXQUARE股市工具")
 
 tabs = st.tabs(["📥 股票池与数据下载", "📊 今日选股信号", "📈 批量回测"])
 
