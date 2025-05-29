@@ -220,29 +220,30 @@ with tabs[1]:
         ema_length = st.number_input("EMA长度", 1, 30, 5, key='ema_input1')
         threshold = st.number_input("连续低于EMA根数", 1, 10, 3, key='th_input1')
 
-    if st.button("执行今日买卖信号筛选"):
+    if st.button("执行今日选股信号筛选"):
         buy_list, buy_dates, sell_list, sell_dates = today_signal_and_exit(symbols, ema_length, threshold)
 
         # 买入信号
         if buy_list:
-            st.success(f"今日出现买入信号的股票（应在【次一交易日开盘】市价买入）:")
+            st.success(f"今日可买入股票：{', '.join(buy_list)}")
             buy_df = pd.DataFrame({'股票代码': buy_list, '信号日期': buy_dates})
             st.dataframe(buy_df, use_container_width=True)
-            st.write("👉 建议在**第二天开盘（美股9:30AM）以市价买入**上表股票")
-            st.download_button('下载今日买入信号csv', buy_df.to_csv(index=False).encode('utf-8'), 'today_buy_signal.csv')
-            st.download_button('下载今日买入信号txt', "\n".join(buy_list).encode('utf-8'), 'today_buy_signal.txt')
-            with open(TODAY_SIGNAL_FILE, "w", encoding="utf-8") as f:
-                f.write("\n".join(buy_list))
+            st.write("👉 建议第二天开盘（美股9:30AM）市价买入")
+            st.download_button('下载今日买入信号csv', buy_df.to_csv(index=False).encode(), '今日买入信号.csv',
+                               'text/csv')
+            st.download_button('下载今日买入信号txt', '\n'.join(buy_list), '今日买入信号.txt')
         else:
             st.info("今日无买入信号")
+
         # 卖出信号
         if sell_list:
-            st.error(f"今日出现平仓信号的股票（应在【次一交易日开盘】市价卖出）:")
+            st.error(f"今日需卖出股票：{', '.join(sell_list)}")
             sell_df = pd.DataFrame({'股票代码': sell_list, '信号日期': sell_dates})
             st.dataframe(sell_df, use_container_width=True)
-            st.write("👉 建议在**第二天开盘（美股9:30AM）以市价卖出**上表股票")
-            st.download_button('下载今日卖出信号csv', sell_df.to_csv(index=False).encode('utf-8'), 'today_sell_signal.csv')
-            st.download_button('下载今日卖出信号txt', "\n".join(sell_list).encode('utf-8'), 'today_sell_signal.txt')
+            st.write("👉 建议第二天开盘（美股9:30AM）市价卖出")
+            st.download_button('下载今日卖出信号csv', sell_df.to_csv(index=False).encode(), '今日卖出信号.csv',
+                               'text/csv')
+            st.download_button('下载今日卖出信号txt', '\n'.join(sell_list), '今日卖出信号.txt')
         else:
             st.info("今日无卖出信号")
 
